@@ -4,13 +4,13 @@
 
 ## 1. Thông tin học viên
 
-- **Họ và tên:**
-- **MSSV:**
+- **Họ và tên:** Lâm Hải Dương
+- **MSSV:** 2A202602676
 - **Lớp:** K4-L3B
-- **Repository URL:**
-- **Commit SHA cuối:**
-- **Challenge ID:**
-- **Tên project Langfuse cá nhân:** `day13-k4-l3b-<MSSV>`
+- **Repository URL:** https://github.com/ElysiaTheElysier/K4-L3-DAY13-LamHaiDuong-2A202602676-Monitoring-LLMOps
+- **Commit SHA cuối:** 61a34f827748393ced851ea7c9b412dd53dced23
+- **Challenge ID:** Đang chờ release từ Lab Coach (CP3)
+- **Tên project Langfuse cá nhân:** `day13-k4-l3b-2A202602676`
 
 ## 2. Evidence index
 
@@ -37,20 +37,20 @@
 
 | Nội dung | Baseline | Kết quả cuối | Nhận xét |
 |---|---|---|---|
-| `validate_logs.py` | | | |
-| `validate_dashboard.py` | | | |
-| `pytest` | | | |
-| Số traces hợp lệ | | | |
-| Số PII leak | | | |
-| Latency P95 / TTFT P95 | | | |
-| Retrieval success rate | | | |
+| `validate_logs.py` | 30/100 | 100/100 | Đạt toàn bộ tiêu chí: JSON schema, correlation ID propagation, log enrichment và PII scrubbing |
+| `validate_dashboard.py` | 6/6 panel hợp lệ | | Đạt cấu trúc 6 panels theo schema version 1 |
+| `pytest` | 22 passed | | Toàn bộ 22 unit tests baseline chạy thành công |
+| Số traces hợp lệ | 10 traces (chỉ root observation) | | Mới có root observation `lab-agent-run`, chưa có child span |
+| Số PII leak | 0 leak | 0 leak | Không có PII rò rỉ nguyên văn trong log (đã scrub trước khi ghi file) |
+| Latency P95 / TTFT P95 | 1261.0 ms / 50.0 ms | | Độ trễ baseline với FakeLLM và RAG giả lập |
+| Retrieval success rate | 100% | | Chưa có lỗi tool hay timeout trong retrieval |
 
 ## 4. Logging và PII
 
-- **Cách tạo/nhận và truyền correlation ID:**
-- **Các metadata được ghi vào structured log:**
-- **Cách bảo đảm PII được scrub trước khi ghi:**
-- **Cách kiểm chứng kết quả:**
+- **Cách tạo/nhận và truyền correlation ID:** Trong `CorrelationIdMiddleware` (`app/middleware.py`), trước mỗi request gọi `clear_contextvars()` để xóa context cũ tránh rò rỉ giữa các request. Kiểm tra header `x-request-id` từ client, nếu có thì giữ nguyên, nếu không thì sinh mã ngẫu nhiên theo định dạng `req-<8-hex>` (`f"req-{uuid.uuid4().hex[:8]}"`). Sau đó gọi `bind_contextvars(correlation_id=correlation_id)` và gán vào `request.state.correlation_id`. Khi trả response, gắn `x-request-id` và `x-response-time-ms` vào headers.
+- **Các metadata được ghi vào structured log:** Các trường chung bao gồm `ts` (ISO UTC), `level`, `service`, `event`, `correlation_id`. Ngữ cảnh nghiệp vụ được enrich tại `app/main.py` gồm `user_id_hash` (băm sha256 12 ký tự hex từ user_id), `session_id`, `feature`, `model`, `env`. Các trường đo lường khi hoàn tất gồm `latency_ms`, `ttft_ms`, `tokens_in`, `tokens_out`, `cost_usd`, `quality_score`, `tool_name`, `tool_success` và payload đã scrub (`message_preview`, `answer_preview`).
+- **Cách bảo đảm PII được scrub trước khi ghi:** Đăng ký processor `scrub_event` trong danh sách processors của `structlog.configure()` ngay trước `JsonlFileProcessor()` và `JSONRenderer()`. Khi ghi log, processor duyệt qua payload và các trường text, áp dụng các regex pattern trong `PII_PATTERNS` (`app/pii.py`) để che các định dạng nhạy cảm (Email, Phone VN, CCCD 12 số, Credit card) thành dạng `[REDACTED_<TYPE>]` trước khi dữ liệu được serialize thành JSON và ghi xuống file `data/logs.jsonl`.
+- **Cách kiểm chứng kết quả:** Chạy `python scripts/load_test.py` với tập dữ liệu mẫu chứa email, số điện thoại, thẻ tín dụng trong `data/sample_queries.jsonl`. Sau đó chạy `python scripts/validate_logs.py` đạt điểm tuyệt đối 100/100: 0 records missing required fields, 0 records missing enrichment, 10 unique correlation IDs, 0 potential PII leaks. Đồng thời chạy toàn bộ test suite `pytest` vượt qua 22/22 tests.
 
 ## 5. Tracing và prompt versioning
 
