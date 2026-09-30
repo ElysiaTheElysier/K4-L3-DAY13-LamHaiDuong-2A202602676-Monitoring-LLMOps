@@ -8,8 +8,8 @@
 - **MSSV:** 2A202602676
 - **Lớp:** K4-L3B
 - **Repository URL:** https://github.com/ElysiaTheElysier/K4-L3-DAY13-LamHaiDuong-2A202602676-Monitoring-LLMOps
-- **Commit SHA cuối:** 61a34f827748393ced851ea7c9b412dd53dced23
-- **Challenge ID:** Đang chờ release từ Lab Coach (CP3)
+- **Commit SHA cuối:** 43ffb2b
+- **Challenge ID:** day13-k4-l3b-monitoring-llmops-v1
 - **Tên project Langfuse cá nhân:** `day13-k4-l3b-2A202602676`
 
 ## 2. Evidence index
@@ -48,21 +48,44 @@ Giữ đúng ba output text và năm ảnh dưới đây. Không tách thêm ả
 
 ## 5. Tracing và prompt versioning
 
-- **Cách xác nhận traces do chính tôi tạo trong project cá nhân:**
+- **Cách xác nhận traces do chính tôi tạo trong project cá nhân:** Project trên Langfuse Cloud mang tên `day13-k4-l3b-2A202602676` được xác thực bằng cặp key cá nhân `LANGFUSE_PUBLIC_KEY` và `LANGFUSE_SECRET_KEY` trong `.env`. Mọi trace và observation đều chứa metadata `correlation_id` khớp chính xác với mã theo dõi trong `data/logs.jsonl`.
 - **Cấu trúc root/retrieval/generation observations:**
-- **Cách nối trace với log:**
-- **Prompt name:**
-- **Version/label baseline:**
-- **Version/label candidate:**
+  - Root trace: `day13-agent-request` bao quát toàn bộ request.
+  - Root observation: `lab-agent-run` (type `agent`) quản lý quy trình điều phối của LabAgent.
+  - Child observation 1: `retrieval` (type `retriever`) đo lường thời gian vector store tìm kiếm văn bản với metadata `doc_count` và `query_preview`.
+  - Child observation 2: `generation` (type `generation`) đại diện cho lượt gọi LLM, ghi nhận `model="claude-sonnet-4-5"`, `usage_details` (`input`, `output`, `total`), `cost_details`, `ttft_ms` và liên kết trực tiếp với prompt template từ Langfuse.
+- **Cách nối trace với log:** Cả structured log JSON (`data/logs.jsonl`) và metadata của Trace trên Langfuse đều lưu cùng trường `correlation_id` (ví dụ `req-41c5450b`). Khi phát hiện dòng log bất thường, chỉ cần sao chép `correlation_id` này và tìm kiếm trên Langfuse UI để mở ngay trace tương ứng.
+- **Prompt name:** `day13-chat`
+- **Version/label baseline:** Version 1 mang nhãn `baseline` và `production` (template tiêu chuẩn: `Feature={{feature}}\nDocs={{docs}}\nQuestion={{message}}`).
+- **Version/label candidate:** Version 2 mang nhãn `candidate` (bổ sung ràng buộc độ dài: `Use retrieved context and keep responses concise under 30 words.`).
 - **Trace ID của mỗi version:**
+  - Request dùng prompt v1: `req-805997d1`
+  - Request dùng prompt v2: `req-77f711b3`
+  - Request sau khi rollback về v1: `req-1d4b3064`
 - **Cách promote và rollback `production`:**
+  - Promote: Trên Langfuse UI (hoặc qua Langfuse SDK `update_prompt`), gán nhãn `production` sang Version 2. Hệ thống tự động nhận diện version mới cho label `production`.
+  - Rollback: Chuyển nhãn `production` quay trở về Version 1. Nhờ cơ chế fetch prompt động theo nhãn (`LANGFUSE_PROMPT_LABEL=production`), ứng dụng rollback ngay lập tức mà không cần sửa đổi mã nguồn hay triển khai lại dịch vụ.
 
 ## 6. Dashboard, SLO và alerts
 
-- **Dashboard và sáu panel:**
+- **Dashboard và sáu panel:** Dựng dashboard 6 panel chuẩn hóa theo hợp đồng cấu hình tại `config/dashboard.yaml`:
+  1. *Latency*: Phân vị độ trễ P50, P95, P99 và TTFT P95 từ `response_sent.latency_ms/ttft_ms` (ngưỡng: P95 <= 3000ms).
+  2. *Traffic*: Tần suất request trên phút từ `request_received` (ngưỡng: >= 1 req/min).
+  3. *Errors*: Tỷ lệ lỗi toàn hệ thống và tỷ lệ thành công của truy xuất thông tin (retrieval success rate) từ `request_received`, `request_failed` và `tool_success` (ngưỡng: error rate <= 2%).
+  4. *Cost*: Chi phí tích lũy theo phút và tổng chi phí tiêu thụ từ `response_sent.cost_usd` (ngưỡng: total <= 2.5 USD).
+  5. *Tokens*: Tổng số lượng tokens input và output từ `response_sent.tokens_in/tokens_out` (ngưỡng: <= 50,000 tokens).
+  6. *Quality*: Điểm chất lượng trung bình theo heuristic proxy từ `response_sent.quality_score` (ngưỡng: >= 0.75).
 - **SLO và lý do chọn:**
+  - Mục tiêu: `99.5%` request thành công và phản hồi nhanh trong vòng $\le 3000$ms trong cửa sổ 28 ngày (`window: 28d`).
+  - SLI: Số `good_event` (`event == "response_sent" and latency_ms <= 3000`) chia cho tổng `total_event` (`event == "request_received"`).
+  - Lý do: Đảm bảo người dùng luôn nhận được trải nghiệm mượt mà, không cảm thấy gián đoạn hay phải chờ đợi quá 3 giây khi tương tác với trợ lý AI.
 - **Cách tính error budget:**
+  - Error budget = $100\% - 99.5\% = 0.5\%$.
+  - Nếu hệ thống nhận 10,000 request trong chu kỳ 28 ngày, số lượng request tối đa được phép bị chậm hơn 3000ms hoặc bị lỗi (500) là: $10,000 \times 0.5\% = 50$ requests. Nếu vượt quá 50 request lỗi, error budget bị cạn kiệt và đội ngũ kỹ thuật phải đóng băng tính năng mới để tập trung vá lỗi hệ thống.
 - **Ba alert và runbook tương ứng:**
+  1. `HighLatencyP95`: P95 latency > 3000ms trong 5 phút (Warning) $\rightarrow$ Runbook: `docs/alerts.md#alert-1`.
+  2. `HighErrorRate`: Error rate > 2% hoặc Retrieval success rate < 90% trong 5 phút (Critical) $\rightarrow$ Runbook: `docs/alerts.md#alert-2`.
+  3. `HighCostSpike`: Total cost > 2.5 USD hoặc output tokens > 50,000 trong 5 phút (Warning) $\rightarrow$ Runbook: `docs/alerts.md#alert-3`.
 
 > Ví dụ cách viết error budget: "SLO 99.5% trong 28 ngày nghĩa là error budget 0.5%. Nếu workload có 10,000 request thì tối đa 50 request được phép lỗi hoặc chậm hơn ngưỡng SLO."
 
