@@ -8,24 +8,30 @@
 - **MSSV:** 2A202602676
 - **Lớp:** K4-L3B
 - **Repository URL:** https://github.com/ElysiaTheElysier/K4-L3-DAY13-LamHaiDuong-2A202602676-Monitoring-LLMOps
-- **Commit SHA cuối:** c7cf032
+- **Commit SHA cuối:** 2fa17ac
 - **Challenge ID:** day13-k4-l3b-monitoring-llmops-v1
 - **Tên project Langfuse cá nhân:** `day13-k4-l3b-2A202602676`
 
 ## 2. Evidence index
 
-Giữ đúng ba output text và năm ảnh dưới đây. Không tách thêm ảnh; nếu cần giải thích, ghi bằng chữ trong các mục sau.
+Danh mục toàn bộ evidence bao gồm 3 output text và đầy đủ bộ 14 ảnh runtime:
 
-| Evidence | Đường dẫn |
-|---|---|
-| Pytest cuối | `evidence/pytest.txt` |
-| Log validator | `evidence/log-validator.txt` |
-| Dashboard validator | `evidence/dashboard-validator.txt` |
-| Structured log + incident log | `evidence/01-incident-log.png` |
-| Trace list | `evidence/02-trace-list.png` |
-| Trace waterfall + metadata + incident trace | `evidence/03-incident-trace.png` |
-| Prompt versions + promote/rollback | `evidence/04-prompt-versioning.png` |
-| Dashboard + incident metric | `evidence/05-dashboard-incident.png` |
+| STT | Evidence | Nội dung kiểm chứng | Đường dẫn |
+|---|---|---|---|
+| 01 | Test cuối | Lệnh `pytest -q`, 23/23 tests passed | `evidence/01-pytest.png` (và `evidence/pytest.txt`) |
+| 02 | Log validator | Kết quả `validate_logs.py` đạt 100/100, 0 PII leak | `evidence/02-log-validator.png` (và `evidence/log-validator.txt`) |
+| 03 | Dashboard validator | Kết quả `validate_dashboard.py` đủ 6/6 panels | `evidence/03-dashboard-validator.png` (và `evidence/dashboard-validator.txt`) |
+| 04 | Structured log | Log JSON đầy đủ correlation ID, latency, model, feature | `evidence/04-structured-log.png` |
+| 05 | PII redaction | Log đầu ra đã che PII email, phone VN, CCCD, thẻ | `evidence/05-pii-redaction.png` |
+| 06 | Trace list | Project cá nhân và tối thiểu 10 traces trên Langfuse | `evidence/06-trace-list.png` |
+| 07 | Trace waterfall | Waterfall tree đủ 3 cấp: root, retrieval, generation | `evidence/07-trace-waterfall.png` |
+| 08 | Trace metadata | Metadata chi tiết: correlation ID, model, token, cost | `evidence/08-trace-metadata.png` |
+| 09 | Prompt versions | Quản lý prompt `day13-chat` có version v1 và v2 | `evidence/09-prompt-versions.png` |
+| 10 | Prompt rollback | Quá trình promote v2 và rollback về v1 | `evidence/10-prompt-rollback.png` |
+| 11 | Dashboard runtime | Dashboard 6 panel với time range và threshold | `evidence/11-dashboard-overview.png` |
+| 12 | Incident metric | Metric bất thường (spike latency > 2500ms) của incident | `evidence/12-incident-metric.png` |
+| 13 | Incident log | Dòng log sự cố có correlation ID `req-45007b41` | `evidence/13-incident-log.png` |
+| 14 | Incident trace | Trace sự cố thấy span `retrieval` bị nghẽn 2.51s | `evidence/14-incident-trace.png` |
 
 ## 3. Kết quả kỹ thuật
 
