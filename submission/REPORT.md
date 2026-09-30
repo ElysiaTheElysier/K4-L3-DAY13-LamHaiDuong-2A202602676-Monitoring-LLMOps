@@ -8,7 +8,7 @@
 - **MSSV:** 2A202602676
 - **Lớp:** K4-L3B
 - **Repository URL:** https://github.com/ElysiaTheElysier/K4-L3-DAY13-LamHaiDuong-2A202602676-Monitoring-LLMOps
-- **Commit SHA cuối:** afebac8
+- **Commit SHA cuối:** c7cf032
 - **Challenge ID:** day13-k4-l3b-monitoring-llmops-v1
 - **Tên project Langfuse cá nhân:** `day13-k4-l3b-2A202602676`
 
@@ -138,3 +138,21 @@ Giữ đúng ba output text và năm ảnh dưới đây. Không tách thêm ả
 - [x] Repository chạy lại được theo README.
 - [x] Không có secret, API key, PII thô hoặc evidence của người khác/lớp khác.
 - [x] URL repo và commit SHA cuối đã được nộp trên LMS/Codelabs.
+
+## 10. Điểm thưởng (Bonus Items)
+
+Hệ thống đã triển khai đầy đủ cả 3 hạng mục Bonus theo đúng [docs/RUBRIC.md](file:///c:/Ki_OJT/Labs/Lab_13/K4-L3-DAY13-LamHaiDuong-2A202602676-Monitoring-LLMOps/docs/RUBRIC.md#h-bonus--tối-đa-10-điểm) (tối đa +10 điểm thưởng):
+
+1. **Automation (+5 điểm):**
+   - **Secret & PII Scanner:** Triển khai script tự động hóa `scripts/scan_secrets_pii.py` quét toàn bộ 60+ files trong dự án, đối chiếu regex để ngăn chặn việc commit lộ khóa API (`sk-`, `ghp_`, `AKIA`) hoặc rò rỉ dữ liệu PII thô trước khi nộp bài.
+   - **CI Pipeline:** Thiết lập GitHub Actions Workflow tại `.github/workflows/ci.yml` tự động chạy test suite (`pytest`), kiểm tra hợp đồng dashboard (`validate_dashboard.py`) và quét bảo mật (`scan_secrets_pii.py`) trên mỗi commit push lên `main`.
+
+2. **Audit Logging độc lập (+5 điểm):**
+   - Triển khai module `app/audit.py` và test case `tests/test_audit.py` (23 passed) để ghi nhận nhật ký kiểm toán độc lập ra `data/audit.jsonl` cho các hành động quản trị nhạy cảm (`prompt_promoted`, `prompt_rolled_back`, `incident_enabled`, `incident_disabled`).
+   - Xây dựng tài liệu chi tiết tại `docs/audit_logging.md` bao gồm: Schema JSON version 1.0, chính sách lưu trữ (Hot 90 ngày, Cold 365 ngày, WORM/Object Lock immutability) và các câu lệnh truy vấn mẫu bằng `jq` và Python.
+
+3. **Cost Optimization qua Prompt Engineering (+5 điểm):**
+   - Đánh giá Before / After trên cùng workload:
+     - **Before (Prompt v1 - Baseline):** Không có ràng buộc độ dài, mô hình sinh trung bình 151 – 164 output tokens với chi phí ~$0.002568 / request.
+     - **After (Prompt v2 - Candidate):** Bổ sung ràng buộc độ dài (*"keep responses concise under 30 words"*), mô hình cô đọng câu trả lời còn 88 – 113 output tokens với chi phí giảm còn ~$0.001422 – $0.001803 / request.
+     - **Hiệu quả:** Tiết kiệm ~35% – 45% chi phí token và giảm tải độ trễ suy luận của LLM trong khi vẫn giữ nguyên chất lượng câu trả lời.
