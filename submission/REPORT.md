@@ -8,7 +8,7 @@
 - **MSSV:** 2A202602676
 - **Lớp:** K4-L3B
 - **Repository URL:** https://github.com/ElysiaTheElysier/K4-L3-DAY13-LamHaiDuong-2A202602676-Monitoring-LLMOps
-- **Commit SHA cuối:** 43ffb2b
+- **Commit SHA cuối:** afebac8
 - **Challenge ID:** day13-k4-l3b-monitoring-llmops-v1
 - **Tên project Langfuse cá nhân:** `day13-k4-l3b-2A202602676`
 
@@ -32,12 +32,12 @@ Giữ đúng ba output text và năm ảnh dưới đây. Không tách thêm ả
 | Nội dung | Baseline | Kết quả cuối | Nhận xét |
 |---|---|---|---|
 | `validate_logs.py` | 30/100 | 100/100 | Đạt toàn bộ tiêu chí: JSON schema, correlation ID propagation, log enrichment và PII scrubbing |
-| `validate_dashboard.py` | 6/6 panel hợp lệ | | Đạt cấu trúc 6 panels theo schema version 1 |
-| `pytest` | 22 passed | | Toàn bộ 22 unit tests baseline chạy thành công |
-| Số traces hợp lệ | 10 traces (chỉ root observation) | | Mới có root observation `lab-agent-run`, chưa có child span |
+| `validate_dashboard.py` | 6/6 panel hợp lệ | 6/6 panel hợp lệ | Đạt cấu trúc 6 panels theo schema version 1 |
+| `pytest` | 22 passed | 22 passed | Toàn bộ 22 unit tests chạy thành công |
+| Số traces hợp lệ | 10 traces (chỉ root observation) | 69+ traces (đầy đủ root + child spans) | Có đầy đủ child spans `retrieval` và `generation` với metadata, token usage, cost |
 | Số PII leak | 0 leak | 0 leak | Không có PII rò rỉ nguyên văn trong log (đã scrub trước khi ghi file) |
-| Latency P95 / TTFT P95 | 1261.0 ms / 50.0 ms | | Độ trễ baseline với FakeLLM và RAG giả lập |
-| Retrieval success rate | 100% | | Chưa có lỗi tool hay timeout trong retrieval |
+| Latency P95 / TTFT P95 | 1261.0 ms / 50.0 ms | 152.0 ms / 50.0 ms (bình thường) | P95 latency ổn định ở mức 152ms khi bình thường, tăng lên >2650ms khi có incident |
+| Retrieval success rate | 100% | 100% | Tỷ lệ truy xuất thành công đạt 100% |
 
 ## 4. Logging và PII
 
@@ -91,34 +91,50 @@ Giữ đúng ba output text và năm ảnh dưới đây. Không tách thêm ả
 
 ## 7. Điều tra challenge
 
-- **Challenge ID:**
-- **Khoảng thời gian điều tra:**
-- **Triệu chứng từ metrics:**
-- **Log line và correlation ID liên quan:**
-- **Trace ID và span gây ảnh hưởng:**
-- **Root cause:**
+- **Challenge ID:** `day13-k4-l3b-monitoring-llmops-v1`
+- **Khoảng thời gian điều tra:** `2026-09-30 11:12:53 – 11:13:23 (04:12:53Z – 04:13:23Z UTC)`
+- **Triệu chứng từ metrics:** Phân vị độ trễ Latency P95 và P99 tăng vọt bất thường từ mức baseline ~151ms lên trên 2650ms (lên tới 7965ms – 13272ms khi chịu tải 5 request đồng thời). Ngưỡng cảnh báo `latency_threshold: 2000ms` và SLO latency threshold `3000ms` đều bị vi phạm trong khoảng thời gian diễn ra sự cố.
+- **Log line và correlation ID liên quan:** Dòng 54 trong `data/logs.jsonl` ghi nhận response:
+  ```json
+  {"service": "api", "latency_ms": 2652, "ttft_ms": 50, "tokens_in": 36, "tokens_out": 113, "cost_usd": 0.001803, "quality_score": 0.9, "tool_name": "retrieval", "tool_success": true, "payload": {"answer_preview": "Starter answer. You should improve this output logic and add better quality chec..."}, "event": "response_sent", "model": "claude-sonnet-4-5", "user_id_hash": "c3a24a72d92a", "correlation_id": "req-45007b41", "env": "dev", "feature": "monitoring", "session_id": "k4-l3b-challenge-s04", "level": "info", "ts": "2026-09-30T04:13:02.290177Z"}
+  ```
+  Correlation ID đại diện: `req-45007b41` (thuộc chuỗi 5 requests challenge: `req-45007b41`, `req-3bbbb917`, `req-f1d6153d`, `req-7640d9c3`, `req-7e9c7e9e`).
+- **Trace ID và span gây ảnh hưởng:** Trace ID `b702ba8705b8249a6f5ae27ff30fcf90` trên Langfuse tương ứng với request `req-45007b41` (User: `c3a24a72d92a`, Session `k4-l3b-challenge-s04`). Khi mở chi tiết waterfall tree, root observation `lab-agent-run` mất tổng cộng 2.66s, trong đó span `retrieval` tiêu tốn tới 2.51s (chiếm ~95% tổng thời gian thực thi) trong khi span `generation` chỉ mất 0.15s ($0.001803). Do đó span gây ảnh hưởng trực tiếp chính là `retrieval`.
+- **Root cause:** Kịch bản sự cố `rag_slow` được kích hoạt trên feature `monitoring`. Trong quá trình truy vấn tài liệu bổ sung, tầng RAG/Vector store bị delay nhân tạo 2.5 giây (`time.sleep(2.5)`), gây tắc nghẽn toàn bộ pipeline xử lý của agent.
 - **Fix action:**
+  1. Tắt cờ sự cố bằng cách gửi request POST tới `/incidents/rag_slow/disable` (chạy script `python scripts/inject_incident.py --disable`).
+  2. Bổ sung timeout giới hạn cho bước retrieval (ví dụ `asyncio.wait_for(retrieval_func(), timeout=1.5)`) kèm fallback trả về tài liệu cache hoặc thông báo giảm tải để bảo vệ latency toàn hệ thống.
+  3. Cấu hình circuit breaker để ngắt tạm thời vector store nếu phát hiện tỷ lệ timeout vượt quá ngưỡng cho phép.
 - **Preventive measure:**
+  1. Kích hoạt rule cảnh báo `HighLatencyP95` (`config/alert_rules.yaml`) để nhận diện ngay khi P95 latency vượt 3000ms trong 5 phút.
+  2. Xây dựng runbook chi tiết tại `docs/alerts.md#alert-1` để hướng dẫn on-call engineer quy trình tra cứu correlation_id và cô lập span retrieval bị nghẽn.
+  3. Bổ sung integration test mô phỏng vector store trễ/timeout trong CI/CD để đảm bảo fallback hoạt động trước khi release tính năng.
 
 > Gợi ý cách viết ngắn, không thay cho evidence thực tế: "Metric cho thấy `[latency/error/cost/quality]` bất thường trong `[khoảng thời gian]`. Log line `[event]` có `correlation_id=[...]` đại diện cho request bị ảnh hưởng. Trace cùng `correlation_id` cho thấy span `[retrieval/generation/prompt/tool]` có dấu hiệu `[chậm/lỗi/token tăng]`. Root cause là `[nguyên nhân suy ra từ evidence]`. Fix action là `[hành động khôi phục]`; preventive measure là `[alert/runbook/test/guardrail để ngăn tái diễn]`."
 
 ## 8. Giải thích và tự đánh giá
 
-- **Một quyết định kỹ thuật quan trọng và lý do:**
-- **Một lỗi/blocker đã gặp:**
-- **Cách tìm nguyên nhân và xử lý:**
+- **Một quyết định kỹ thuật quan trọng và lý do:** Thiết kế cơ chế bọc `@observe` riêng biệt cho 2 hàm `_retrieve` (as retriever) và `_generate` (as generation) trong `LabAgent` thay vì chỉ observe một hàm chung. Lý do: Giúp cô lập chính xác thời gian và tài nguyên của từng công đoạn (retrieval vs generation), phân định rõ độ trễ do vector store hay do mô hình sinh ngôn ngữ gây ra, đồng thời liên kết được prompt template và tính toán chi phí token độc lập.
+- **Một lỗi/blocker đã gặp:** Trong quá trình ghi log có cấu trúc, các trường nhạy cảm như email hay thẻ tín dụng nằm sâu bên trong dictionary lồng nhau của `payload` có nguy cơ bị rò rỉ nếu hàm regex scrubbing chỉ duyệt ở tầng ngoài cùng.
+- **Cách tìm nguyên nhân và xử lý:** Chạy `python scripts/validate_logs.py` và phát hiện các trường hợp PII lồng sâu không được scrub. Xử lý bằng cách viết hàm đệ quy `scrub_dict()` trong processor `scrub_event` để duyệt qua toàn bộ các key-value của dictionary lồng nhau hoặc list lồng nhau trước khi structlog serialize thành JSON.
 - **Cách hiểu luồng Metrics → Logs → Traces:**
+  - *Metrics*: Cung cấp bức tranh tổng thể ở tầng cao nhất (tín hiệu cảnh báo "Hệ thống đang có vấn đề gì và ở đâu?" - ví dụ P95 latency vọt lên >2500ms).
+  - *Logs*: Thu hẹp phạm vi ("Yêu cầu cụ thể nào bị ảnh hưởng?" - lọc các log line có latency cao, lấy ra `correlation_id` đại diện như `req-45007b41`).
+  - *Traces*: Phân tích sâu nguyên nhân gốc rễ ở mức vi mô ("Thành phần bên trong nào bị lỗi?" - dùng `correlation_id` tra cứu waterfall tree để định vị chính xác span `retrieval` bị trễ 2.5s).
 - **Vai trò của prompt version, token/cost, SLO hoặc rollback trong vận hành LLM:**
-- **Điều quan trọng nhất đã học:**
-- **Hạn chế hoặc phần chưa hoàn thành, nếu có:**
+  - *Prompt Versioning & Rollback*: Cho phép A/B testing, quản lý vòng đời prompt như mã nguồn và hoàn nguyên tức thì khi prompt mới làm giảm chất lượng hoặc tăng token bất thường mà không cần redeploy code.
+  - *Token & Cost Tracking*: Giúp kiểm soát ngân sách vận hành, phát hiện prompt injection hay vòng lặp sinh text vô hạn.
+  - *SLO & Error Budget*: Đặt ra ranh giới định lượng giữa tốc độ phát triển tính năng và độ ổn định của dịch vụ, bảo vệ trải nghiệm của người dùng cuối.
+- **Điều quan trọng nhất đã học:** Hiểu sâu sắc triết lý Observability trong LLMOps: Một hệ thống AI production không thể chỉ dựa vào kết quả test cục bộ, mà cần một hệ sinh thái giám sát hoàn chỉnh kết hợp giữa Structured Logging (với PII scrubbing), Distributed Tracing (Langfuse) và Metric Dashboards/SLO để phản ứng nhanh trước các sự cố runtime.
+- **Hạn chế hoặc phần chưa hoàn thành, nếu có:** Các mô hình LLM và RAG hiện tại trong bài lab đang chạy dưới dạng mock/giả lập; trong môi trường production thực tế cần tích hợp thêm semantic caching (Redis) và rate limiter phân tán để tối ưu chi phí và độ trễ hơn nữa.
 
 ## 9. Checklist trước khi nộp
 
-- [ ] Kết quả và evidence thuộc commit SHA cuối.
-- [ ] Tất cả ảnh/output mở được bằng đường dẫn tương đối.
-- [ ] Có đúng 3 file text và 5 ảnh runtime theo hướng dẫn.
-- [ ] Incident evidence nối đúng metric → log → trace.
-- [ ] Trace/prompt evidence thuộc project Langfuse cá nhân và ảnh không lộ key/secret.
-- [ ] Repository chạy lại được theo README.
-- [ ] Không có secret, API key, PII thô hoặc evidence của người khác/lớp khác.
-- [ ] URL repo và commit SHA cuối đã được nộp trên LMS/Codelabs.
+- [x] Kết quả và evidence thuộc commit SHA cuối.
+- [x] Tất cả ảnh/output mở được bằng đường dẫn tương đối.
+- [x] Có đúng 3 file text và 5 ảnh runtime theo hướng dẫn.
+- [x] Incident evidence nối đúng metric → log → trace.
+- [x] Trace/prompt evidence thuộc project Langfuse cá nhân và ảnh không lộ key/secret.
+- [x] Repository chạy lại được theo README.
+- [x] Không có secret, API key, PII thô hoặc evidence của người khác/lớp khác.
+- [x] URL repo và commit SHA cuối đã được nộp trên LMS/Codelabs.
